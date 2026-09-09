@@ -225,7 +225,7 @@ function chunk(typ, data) {
   return out;
 }
 
-function writeIndexed(indices, w, h) {
+function writeIndexed(indices, w, h, transparent) {
   var raw = new Uint8Array(h * (1 + w));
   var y;
   for (y = 0; y < h; y++) {
@@ -242,9 +242,11 @@ function writeIndexed(indices, w, h) {
   var sig = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
   var cIHDR = chunk("IHDR", ihdr);
   var cPLTE = chunk("PLTE", pal);
+  var cTRNS = transparent ? chunk("tRNS", new Uint8Array([0])) : null;
   var cIDAT = chunk("IDAT", idat);
   var cIEND = chunk("IEND", new Uint8Array(0));
-  var out = new Uint8Array(sig.length + cIHDR.length + cPLTE.length + cIDAT.length + cIEND.length);
+  var extra = cTRNS ? cTRNS.length : 0;
+  var out = new Uint8Array(sig.length + cIHDR.length + cPLTE.length + extra + cIDAT.length + cIEND.length);
   var p = 0;
   out.set(sig, p);
   p += sig.length;
@@ -252,6 +254,10 @@ function writeIndexed(indices, w, h) {
   p += cIHDR.length;
   out.set(cPLTE, p);
   p += cPLTE.length;
+  if (cTRNS) {
+    out.set(cTRNS, p);
+    p += cTRNS.length;
+  }
   out.set(cIDAT, p);
   p += cIDAT.length;
   out.set(cIEND, p);
@@ -277,6 +283,368 @@ function bytesOf(src) {
   return new Uint8Array(src);
 }
 
+function lonToX(lon, z) {
+  return ((lon + 180) / 360) * (1 << z) * 256;
+}
+
+function latToY(lat, z) {
+  var s = Math.sin((lat * Math.PI) / 180);
+  return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * (1 << z) * 256;
+}
+
+function mapView(lat, lon, z, size) {
+  size = size || 256;
+  var left = Math.floor(lonToX(lon, z) - size / 2);
+  var top = Math.floor(latToY(lat, z) - size / 2);
+  var max = 1 << z;
+  var x0 = Math.floor(left / 256);
+  var y0 = Math.floor(top / 256);
+  var x1 = Math.floor((left + size - 1) / 256);
+  var y1 = Math.floor((top + size - 1) / 256);
+  var tiles = [];
+  var x;
+  var y;
+  for (y = y0; y <= y1; y++) {
+    if (y < 0 || y >= max) {
+      continue;
+    }
+    for (x = x0; x <= x1; x++) {
+      tiles.push({
+        z: z,
+        x: ((x % max) + max) % max,
+        y: y,
+        originX: x,
+        originY: y
+      });
+    }
+  }
+  return { left: left, top: top, size: size, tiles: tiles, z: z };
+}
+
+function solidRgba(size, r, g, b) {
+  var n = size * size;
+  var out = new Uint8Array(n * 4);
+  var i;
+  for (i = 0; i < n; i++) {
+    var o = i * 4;
+    out[o] = r;
+    out[o + 1] = g;
+    out[o + 2] = b;
+    out[o + 3] = 255;
+  }
+  return out;
+}
+
+function blitTile(dst, view, tile, rgba, tw) {
+  tw = tw || 256;
+  var size = view.size;
+  var tx = tile.originX * 256;
+  var ty = tile.originY * 256;
+  var y;
+  var x;
+  for (y = 0; y < size; y++) {
+    var sy = view.top + y - ty;
+    if (sy < 0 || sy >= tw) {
+      continue;
+    }
+    for (x = 0; x < size; x++) {
+      var sx = view.left + x - tx;
+      if (sx < 0 || sx >= tw) {
+        continue;
+      }
+      var di = (y * size + x) * 4;
+      var si = (sy * tw + sx) * 4;
+      dst[di] = rgba[si];
+      dst[di + 1] = rgba[si + 1];
+      dst[di + 2] = rgba[si + 2];
+      dst[di + 3] = 255;
+    }
+  }
+}
+
+function assembleMap(view, parts) {
+  var dst = solidRgba(view.size, 0xaa, 0xaa, 0xaa);
+  var i;
+  for (i = 0; i < view.tiles.length; i++) {
+    if (!parts[i] || !parts[i].rgba) {
+      continue;
+    }
+    blitTile(dst, view, view.tiles[i], parts[i].rgba, parts[i].width);
+  }
+  return dst;
+}
+
+var MAP_WATER = [255, 255, 255];
+var MAP_LAND = [85, 170, 85];
+var MAP_DETAIL = [170, 255, 170];
+var RAIN = [
+  [170, 255, 255],
+  [0, 170, 255],
+  [0, 85, 170],
+  [255, 255, 0],
+  [255, 170, 0],
+  [170, 0, 0]
+];
+var BLUE_KEYS = [
+  [130, 123, 105, 0],
+  [146, 136, 113, 5],
+  [206, 192, 135, 10],
+  [136, 221, 238, 15],
+  [0, 163, 224, 20],
+  [0, 119, 170, 25],
+  [0, 85, 136, 30],
+  [255, 238, 0, 35],
+  [255, 170, 0, 40],
+  [255, 68, 0, 45],
+  [193, 0, 0, 50],
+  [255, 170, 255, 55]
+];
+
+function styleMap(rgba) {
+  var i;
+  for (i = 0; i < rgba.length; i += 4) {
+    var r = rgba[i];
+    var g = rgba[i + 1];
+    var b = rgba[i + 2];
+    var lum = (r * 299 + g * 587 + b * 114) / 1000;
+    var t;
+    if ((b > 150 && b >= g + 8 && b >= r + 20) || (b > 180 && g > 180 && r < 210)) {
+      t = MAP_WATER;
+    } else if (g >= r - 8 && g >= b + 12 && lum > 140) {
+      t = MAP_DETAIL;
+    } else {
+      t = MAP_LAND;
+    }
+    rgba[i] = t[0];
+    rgba[i + 1] = t[1];
+    rgba[i + 2] = t[2];
+    rgba[i + 3] = 255;
+  }
+  return rgba;
+}
+
+function rainColor(r, g, b, a) {
+  if (a < 48) {
+    return null;
+  }
+  var best = 0;
+  var bestD = 1e9;
+  var i;
+  for (i = 0; i < BLUE_KEYS.length; i++) {
+    var k = BLUE_KEYS[i];
+    var d = (r - k[0]) * (r - k[0]) + (g - k[1]) * (g - k[1]) + (b - k[2]) * (b - k[2]);
+    if (d < bestD) {
+      bestD = d;
+      best = k[3];
+    }
+  }
+  if (best < 15) {
+    return null;
+  }
+  if (best < 20) {
+    return RAIN[0];
+  }
+  if (best < 30) {
+    return RAIN[1];
+  }
+  if (best < 35) {
+    return RAIN[2];
+  }
+  if (best < 40) {
+    return RAIN[3];
+  }
+  if (best < 50) {
+    return RAIN[4];
+  }
+  return RAIN[5];
+}
+
+function washRadar(rgba) {
+  var i;
+  for (i = 0; i < rgba.length; i += 4) {
+    var c = rainColor(rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]);
+    if (c) {
+      rgba[i] = c[0];
+      rgba[i + 1] = c[1];
+      rgba[i + 2] = c[2];
+    } else {
+      rgba[i] = 255;
+      rgba[i + 1] = 255;
+      rgba[i + 2] = 255;
+    }
+    rgba[i + 3] = 255;
+  }
+  return rgba;
+}
+
+function overlay(mapRgba, radarRgba, pixels) {
+  var out = new Uint8Array(pixels * 4);
+  out.set(mapRgba);
+  var i;
+  for (i = 0; i < pixels; i++) {
+    var o = i * 4;
+    var c = rainColor(radarRgba[o], radarRgba[o + 1], radarRgba[o + 2], radarRgba[o + 3]);
+    if (!c) {
+      continue;
+    }
+    out[o] = c[0];
+    out[o + 1] = c[1];
+    out[o + 2] = c[2];
+    out[o + 3] = 255;
+  }
+  return out;
+}
+
+function rgbaToPebblePng(rgba, w, h, nw, nh, transparent) {
+  nw = nw || 200;
+  nh = nh || 200;
+  var scaled = w === nw && h === nh ? rgba : scaleNearest(rgba, w, h, nw, nh);
+  return writeIndexed(toIndexed(scaled, nw, nh), nw, nh, transparent);
+}
+
+function rainOnlyPng(radar, nw, nh) {
+  var rgba = radar.rgba;
+  var i;
+  for (i = 0; i < rgba.length; i += 4) {
+    var c = rainColor(rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]);
+    if (c) {
+      rgba[i] = c[0];
+      rgba[i + 1] = c[1];
+      rgba[i + 2] = c[2];
+      rgba[i + 3] = 255;
+    } else {
+      rgba[i] = 0;
+      rgba[i + 1] = 0;
+      rgba[i + 2] = 0;
+      rgba[i + 3] = 255;
+    }
+  }
+  return rgbaToPebblePng(rgba, radar.width, radar.height, nw, nh, false);
+}
+
+var CITIES = [
+  { name: "LONDON", lat: 51.5074, lon: -0.1278 },
+  { name: "PARIS", lat: 48.8566, lon: 2.3522 },
+  { name: "LYON", lat: 45.764, lon: 4.8357 },
+  { name: "LILLE", lat: 50.6292, lon: 3.0573 },
+  { name: "NANTES", lat: 47.2184, lon: -1.5536 },
+  { name: "MARSEILLE", lat: 43.2965, lon: 5.3698 },
+  { name: "MANCHESTER", lat: 53.4808, lon: -2.2426 },
+  { name: "BIRMINGHAM", lat: 52.4862, lon: -1.8904 },
+  { name: "BRUSSELS", lat: 50.8503, lon: 4.3517 },
+  { name: "AMSTERDAM", lat: 52.3676, lon: 4.9041 },
+  { name: "DUBLIN", lat: 53.3498, lon: -6.2603 },
+  { name: "CARDIFF", lat: 51.4816, lon: -3.1791 }
+];
+
+var GLYPH = {
+  A: [0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1],
+  B: [1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0],
+  C: [0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1],
+  D: [1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 0],
+  E: [1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 1],
+  F: [1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 0],
+  G: [0, 1, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1],
+  H: [1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1],
+  I: [1, 1, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1],
+  L: [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 1],
+  M: [1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1],
+  N: [1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1],
+  O: [0, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 0, 1, 0],
+  P: [1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 0, 1, 0, 0],
+  R: [1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 0, 1],
+  S: [0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0],
+  T: [1, 1, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
+  U: [1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 0, 1, 0],
+  Y: [1, 0, 1, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0]
+};
+
+function plot(rgba, size, x, y, r, g, b) {
+  if (x < 0 || y < 0 || x >= size || y >= size) {
+    return;
+  }
+  var o = (y * size + x) * 4;
+  rgba[o] = r;
+  rgba[o + 1] = g;
+  rgba[o + 2] = b;
+  rgba[o + 3] = 255;
+}
+
+function stampGlyph(rgba, size, x0, y0, bits) {
+  var i;
+  for (i = 0; i < 15; i++) {
+    if (!bits[i]) {
+      continue;
+    }
+    var x = x0 + (i % 3);
+    var y = y0 + ((i / 3) | 0);
+    plot(rgba, size, x - 1, y, 255, 255, 255);
+    plot(rgba, size, x + 1, y, 255, 255, 255);
+    plot(rgba, size, x, y - 1, 255, 255, 255);
+    plot(rgba, size, x, y + 1, 255, 255, 255);
+    plot(rgba, size, x, y, 0, 0, 0);
+  }
+}
+
+function stampText(rgba, size, x, y, text) {
+  var i;
+  for (i = 0; i < text.length; i++) {
+    var g = GLYPH[text.charAt(i)];
+    if (g) {
+      stampGlyph(rgba, size, x + i * 4, y, g);
+    }
+  }
+}
+
+function labelCities(rgba, view) {
+  var i;
+  for (i = 0; i < CITIES.length; i++) {
+    var c = CITIES[i];
+    var x = Math.round(lonToX(c.lon, view.z) - view.left);
+    var y = Math.round(latToY(c.lat, view.z) - view.top);
+    if (x < 4 || y < 8 || x >= view.size - 4 || y >= view.size - 4) {
+      continue;
+    }
+    plot(rgba, view.size, x, y, 0, 0, 0);
+    plot(rgba, view.size, x + 1, y, 255, 255, 255);
+    stampText(rgba, view.size, x + 3, y - 6, c.name);
+  }
+}
+
+function mapToPebblePng(mapRgba, mapSize, nw, nh, view) {
+  var base = new Uint8Array(mapRgba);
+  if (view) {
+    labelCities(base, view);
+  }
+  return rgbaToPebblePng(base, mapSize, mapSize, nw, nh, false);
+}
+
+function compose(mapRgba, mapSize, radar, nw, nh, view) {
+  var radarRgba = radar.rgba;
+  if (radar.width !== mapSize || radar.height !== mapSize) {
+    radarRgba = scaleNearest(radar.rgba, radar.width, radar.height, mapSize, mapSize);
+  }
+  var base = new Uint8Array(mapRgba);
+  if (view) {
+    labelCities(base, view);
+  }
+  var over = overlay(base, radarRgba, mapSize * mapSize);
+  return rgbaToPebblePng(over, mapSize, mapSize, nw, nh);
+}
+
 module.exports = {
-  toPebblePng: toPebblePng
+  toPebblePng: toPebblePng,
+  readPng: readPng,
+  mapView: mapView,
+  solidRgba: solidRgba,
+  assembleMap: assembleMap,
+  overlay: overlay,
+  rainColor: rainColor,
+  scaleNearest: scaleNearest,
+  compose: compose,
+  washRadar: washRadar,
+  rainOnlyPng: rainOnlyPng,
+  mapToPebblePng: mapToPebblePng,
+  rgbaToPebblePng: rgbaToPebblePng,
+  blitTile: blitTile
 };

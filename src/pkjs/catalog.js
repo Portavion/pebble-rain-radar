@@ -1,6 +1,8 @@
 var OFFSETS = [-60, -45, -30, -15, 0, 15, 30, 45, 60];
 var NOW = 4;
-var MATCH_SLACK = 8 * 60;
+var MATCH_SLACK = 10 * 60;
+var TILE_ZOOM = 5;
+var TILE_SIZE = 256;
 
 function parseCatalog(json, lat, lon) {
   if (!json || !json.host || !json.radar) {
@@ -91,12 +93,15 @@ function pickFrame(catalog, cursor) {
   return nearestInPool(poolForCursor(catalog, cursor), target, catalog.origin);
 }
 
-function tileUrl(catalog, frame, zoom) {
-  var z = zoom == null ? 8 : zoom;
+function tileUrl(catalog, frame, zoom, size) {
+  var z = zoom == null ? TILE_ZOOM : zoom;
+  var sz = size == null ? TILE_SIZE : size;
   return (
     catalog.host +
     frame.path +
-    "/256/" +
+    "/" +
+    sz +
+    "/" +
     z +
     "/" +
     catalog.lat.toFixed(4) +
@@ -124,6 +129,8 @@ module.exports = {
   OFFSETS: OFFSETS,
   NOW: NOW,
   MATCH_SLACK: MATCH_SLACK,
+  TILE_ZOOM: TILE_ZOOM,
+  TILE_SIZE: TILE_SIZE,
   parseCatalog: parseCatalog,
   pickFrame: pickFrame,
   tileUrl: tileUrl,

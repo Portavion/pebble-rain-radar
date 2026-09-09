@@ -4,6 +4,8 @@ node_modules/
 *.pbw
 .DS_Store
 .cursor/
+.env
+.env.*
 .lock-waf_darwin_build
 .lock-waf_linux_build
 .lock-waf_nt_build

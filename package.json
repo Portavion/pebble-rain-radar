@@ -6,6 +6,10 @@
     "pebble-app"
   ],
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Portavion/pebble-rain-radar.git"
+  },
   "dependencies": {
     "pako": "^2.2.0"
   },
@@ -36,7 +40,8 @@
       "Complete",
       "Status",
       "Origin",
-      "HasNowcast"
+      "HasNowcast",
+      "IsMap"
     ],
     "resources": {
       "media": []
