@@ -1,0 +1,10 @@
+build/
+node_modules/
+.pebble-sdk/
+*.pbw
+.DS_Store
+.cursor/
+.lock-waf_darwin_build
+.lock-waf_linux_build
+.lock-waf_nt_build
+tools/fixtures/*-pebble.png

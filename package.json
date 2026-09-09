@@ -1,0 +1,45 @@
+{
+  "name": "rainradar",
+  "author": "Portavion",
+  "version": "1.0.0",
+  "keywords": [
+    "pebble-app"
+  ],
+  "private": true,
+  "dependencies": {
+    "pako": "^2.2.0"
+  },
+  "pebble": {
+    "displayName": "Rainradar",
+    "uuid": "7c3e1a90-6b2f-4d8a-9c1e-2f4a8b0d5e17",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "emery"
+    ],
+    "capabilities": [
+      "location"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "messageKeys": [
+      "JSReady",
+      "SlotWanted",
+      "RequestId",
+      "Slot",
+      "FrameTime",
+      "DataLength",
+      "DataChunk",
+      "ChunkSize",
+      "Index",
+      "Complete",
+      "Status",
+      "Origin",
+      "HasNowcast"
+    ],
+    "resources": {
+      "media": []
+    }
+  }
+}
