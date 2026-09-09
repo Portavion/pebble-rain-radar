@@ -451,17 +451,18 @@ function locate(done) {
 }
 
 function boot() {
-  loadCatalog(function (err, cat) {
-    if (err) {
-      var dict = {};
-      dict[keys.Status] = 2;
-      send(dict);
-      return;
-    }
-    state.catalog = cat;
-    var hello = {};
-    hello[keys.Status] = 0;
-    hello[keys.Origin] = (state.rvCatalog || cat).origin;
+  locate(function () {
+    loadCatalog(function (err, cat) {
+      if (err) {
+        var dict = {};
+        dict[keys.Status] = 2;
+        send(dict);
+        return;
+      }
+      state.catalog = cat;
+      var hello = {};
+      hello[keys.Status] = 0;
+      hello[keys.Origin] = (state.rvCatalog || cat).origin;
       hello[keys.HasNowcast] = pickSlot(8) || pickSlot(5) ? 1 : 0;
       send(hello);
       var cursor = state.want ? state.want.cursor : catalog.NOW;
@@ -469,8 +470,8 @@ function boot() {
       state.inflight = gen;
       state.want = { cursor: cursor, gen: gen };
       serve(cursor, gen);
+    });
   });
-  locate(function () {});
 }
 
 Pebble.addEventListener("ready", function () {

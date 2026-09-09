@@ -115,9 +115,9 @@ async function main() {
   console.log(
     JSON.stringify({
       premise:
-        "Rain lives on a second BitmapLayer above the map, so rain pixels in the slot PNG will be visible on top of OSM.",
-      actors: ["map_layer", "rain_layer", "rainColor", "overlay", "IsMap_png", "slot_png"],
-      layerOrder: ["window", "map", "rain", "crosshair", "footer", "loading"]
+        "One GBitmap on s_frame_layer. drop_frame before decode. overlayChanged must be > 0 and composeBytes <= 40000.",
+      actors: ["frame_layer", "rainColor", "overlay", "slot_png"],
+      layerOrder: ["window", "frame", "crosshair", "footer", "loading"]
     })
   );
   fixture();
