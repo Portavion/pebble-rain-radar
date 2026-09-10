@@ -20,7 +20,7 @@ if (out.length < 100) {
 if (out.length > 40000) {
   throw new Error("too big " + out.length);
 }
-var view = png.mapView(51.5074, -0.1278, 5, 256);
+var view = png.mapView(51.5074, -0.1278, 9, 256);
 if (view.tiles.length < 1 || view.tiles.length > 4) {
   throw new Error("tiles " + view.tiles.length);
 }
@@ -42,4 +42,19 @@ for (i = 0; i < radar.rgba.length; i += 4) {
 if (painted < 100) {
   throw new Error("fixture rain");
 }
-console.log("ok", out.length, "rain", painted, "overlay", rain.length);
+var water = png.solidRgba(8, 0, 0, 200);
+png.styleMap(water);
+if (water[0] !== 255 || water[1] !== 255 || water[2] !== 255) {
+  throw new Error("styleMap water " + water[0] + "," + water[1] + "," + water[2]);
+}
+var z7 = png.solidRgba(256, 136, 221, 238);
+var z9map = png.solidRgba(256, 85, 170, 85);
+png.styleMap(z9map);
+var cropped = png.composeFrame(z9map, 256, { width: 256, height: 256, rgba: z7 }, 200, 200, view, 7, 9);
+if (cropped[0] !== 0x89 || cropped[25] !== 3) {
+  throw new Error("composeFrame png");
+}
+if (cropped.length < 100 || cropped.length > 40000) {
+  throw new Error("composeFrame " + cropped.length);
+}
+console.log("ok", out.length, "rain", painted, "overlay", rain.length, "crop", cropped.length);

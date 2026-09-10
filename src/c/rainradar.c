@@ -5,7 +5,6 @@
 #define NOW_INDEX 4
 #define RADAR_PX 200
 #define FOOTER_PX 28
-#define LOAD_NEED 10
 
 static const int16_t SLOT_OFFSETS[SLOT_COUNT] = {
   -60, -45, -30, -15, 0, 15, 30, 45, 60
@@ -25,14 +24,12 @@ static Layer *s_cross_layer;
 static TextLayer *s_footer;
 static Layer *s_loading;
 static bool s_loading_up = true;
-static int s_load_have;
 static GBitmap *s_frame_bitmap;
 static uint8_t *s_img_data;
 static int s_img_size;
 static uint8_t *s_slot_png[SLOT_COUNT];
 static int s_slot_len[SLOT_COUNT];
 static time_t s_slot_time[SLOT_COUNT];
-static bool s_recv_map;
 static uint32_t s_request_id;
 static uint32_t s_recv_id;
 static int s_cursor = NOW_INDEX;
@@ -54,21 +51,7 @@ static void hide_loading(void) {
   layer_set_hidden(s_loading, true);
 }
 
-static void bump_load(void) {
-  if (s_load_have >= LOAD_NEED) {
-    return;
-  }
-  s_load_have++;
-  if (s_loading && s_loading_up) {
-    layer_mark_dirty(s_loading);
-  }
-  if (s_load_have >= LOAD_NEED) {
-    hide_loading();
-  }
-}
-
 static void loading_update(Layer *layer, GContext *ctx) {
-  int fill;
   (void)layer;
   graphics_context_set_fill_color(ctx, GColorWhite);
   graphics_fill_rect(ctx, layer_get_bounds(layer), 4, GCornersAll);
@@ -93,12 +76,6 @@ static void loading_update(Layer *layer, GContext *ctx) {
     GTextAlignmentCenter,
     NULL
   );
-  graphics_draw_rect(ctx, GRect(14, 58, 152, 14));
-  fill = (150 * s_load_have) / LOAD_NEED;
-  if (fill > 0) {
-    graphics_context_set_fill_color(ctx, GColorBlack);
-    graphics_fill_rect(ctx, GRect(15, 59, fill, 12), 0, GCornerNone);
-  }
 }
 
 static void format_slot_footer(time_t when, const char *mark) {
@@ -134,6 +111,21 @@ static void drop_frame(void) {
   }
 }
 
+static void retain_warm(int cursor) {
+  int i;
+  for (i = 0; i < SLOT_COUNT; i++) {
+    int d = i - cursor;
+    if (d < 0) {
+      d = -d;
+    }
+    if (d > 1 && s_slot_png[i]) {
+      free(s_slot_png[i]);
+      s_slot_png[i] = NULL;
+      s_slot_len[i] = 0;
+    }
+  }
+}
+
 static bool show_slot(int slot) {
   GBitmap *next;
   GRect b;
@@ -155,6 +147,8 @@ static bool show_slot(int slot) {
   s_frame_time = s_slot_time[slot];
   s_view = VIEW_READY;
   format_ready_footer();
+  hide_loading();
+  retain_warm(s_cursor);
   return true;
 }
 
@@ -201,30 +195,18 @@ static void step_cursor(int dir) {
 static void up_click(ClickRecognizerRef recognizer, void *context) {
   (void)recognizer;
   (void)context;
-  if (s_loading_up) {
-    hide_loading();
-    return;
-  }
   step_cursor(-1);
 }
 
 static void down_click(ClickRecognizerRef recognizer, void *context) {
   (void)recognizer;
   (void)context;
-  if (s_loading_up) {
-    hide_loading();
-    return;
-  }
   step_cursor(1);
 }
 
 static void select_click(ClickRecognizerRef recognizer, void *context) {
   (void)recognizer;
   (void)context;
-  if (s_loading_up) {
-    hide_loading();
-    return;
-  }
   if (s_cursor == NOW_INDEX && s_view == VIEW_READY) {
     show_slot(NOW_INDEX);
     return;
@@ -268,15 +250,17 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     if (code == 1) {
       s_view = VIEW_FAILED;
       set_footer("no GPS");
+      hide_loading();
     } else if (code == 2) {
       s_view = VIEW_FAILED;
       set_footer("no radar");
+      hide_loading();
     } else if (code == 3) {
-      bump_load();
       if (slot == s_cursor && !s_slot_png[s_cursor]) {
         s_view = VIEW_GAP;
         snprintf(s_footer_buf, sizeof(s_footer_buf), "no data  %+dm", SLOT_OFFSETS[s_cursor]);
         set_footer(s_footer_buf);
+        hide_loading();
       }
     }
   }
@@ -298,7 +282,6 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
       return;
     }
     s_recv_id = rid;
-    s_recv_map = dict_find(iter, MESSAGE_KEY_IsMap) != NULL;
     free_recv();
     s_img_size = len->value->int32;
     if (s_img_size <= 0 || s_img_size > 40000) {
@@ -332,25 +315,6 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     if (!accept_rid(s_recv_id) || !s_img_data) {
       return;
     }
-    if (s_recv_map || dict_find(iter, MESSAGE_KEY_IsMap)) {
-      GBitmap *map;
-      int nbytes = s_img_size;
-      drop_frame();
-      map = gbitmap_create_from_png_data(s_img_data, (size_t)nbytes);
-      free_recv();
-      s_recv_map = false;
-      if (map) {
-        GRect b = gbitmap_get_bounds(map);
-        if (b.size.w > 0) {
-          bitmap_layer_set_bitmap(s_frame_layer, map);
-          s_frame_bitmap = map;
-        } else {
-          gbitmap_destroy(map);
-        }
-      }
-      bump_load();
-      return;
-    }
     int slot = slot_from(iter);
     Tuple *ft = dict_find(iter, MESSAGE_KEY_FrameTime);
     if (ft) {
@@ -366,7 +330,6 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     if (slot == s_cursor) {
       show_slot(slot);
     }
-    bump_load();
   }
 }
 

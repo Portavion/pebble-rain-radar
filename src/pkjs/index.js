@@ -2,31 +2,27 @@ var catalog = require("./catalog");
 var png = require("./png");
 var keys = require("message_keys");
 
-var CHUNK = 1000;
+var CHUNK = 4000;
 var DEBUG_LAT = 51.5074;
 var DEBUG_LON = -0.1278;
 var LIBRE = "https://api.librewxr.net/public/weather-maps.json";
 var RAINVIEWER = "https://api.rainviewer.com/public/weather-maps.json";
 
 var state = {
-  lat: DEBUG_LAT,
-  lon: DEBUG_LON,
+  view: { lat: DEBUG_LAT, lon: DEBUG_LON, zoom: catalog.VIEW_ZOOM },
   catalog: null,
-  zoom: catalog.TILE_ZOOM,
   cache: {},
   inflight: 0,
   want: null,
   mapRgba: null,
   mapView: null,
-  mapStarted: false,
-  raw: {},
+  mapWait: null,
   rvCatalog: null,
   libreCatalog: null,
   sendQ: [],
   sendBusy: false,
   warmQ: [],
-  warming: false,
-  warmed: false
+  warming: false
 };
 
 function send(dict, ok, fail) {
@@ -84,9 +80,8 @@ function loadCatalog(done) {
       return;
     }
     try {
-      var cat = catalog.parseCatalog(json, state.lat, state.lon);
+      var cat = catalog.parseCatalog(json, state.view.lat, state.view.lon);
       settled = true;
-      state.zoom = catalog.TILE_ZOOM;
       done(null, cat);
     } catch (e) {}
   }
@@ -95,7 +90,7 @@ function loadCatalog(done) {
       return;
     }
     try {
-      state.rvCatalog = catalog.parseCatalog(json, state.lat, state.lon);
+      state.rvCatalog = catalog.parseCatalog(json, state.view.lat, state.view.lon);
     } catch (e) {}
     use(json);
   });
@@ -104,12 +99,12 @@ function loadCatalog(done) {
       return;
     }
     try {
-      state.libreCatalog = catalog.parseCatalog(json, state.lat, state.lon);
+      state.libreCatalog = catalog.parseCatalog(json, state.view.lat, state.view.lon);
     } catch (e) {}
     if (!settled) {
       use(json);
-    } else if (state.catalog) {
-      warmAll();
+    } else if (state.catalog && state.want) {
+      prefetch(state.want.cursor);
     }
   });
   setTimeout(function () {
@@ -151,9 +146,6 @@ function sendChunks(bytes, meta, gen, done) {
       complete[keys.RequestId] = gen;
       complete[keys.Slot] = meta.cursor;
       complete[keys.FrameTime] = meta.frameTime;
-      if (meta.isMap) {
-        complete[keys.IsMap] = 1;
-      }
       send(complete, finish, finish);
       return;
     }
@@ -180,9 +172,6 @@ function sendChunks(bytes, meta, gen, done) {
   start[keys.RequestId] = gen;
   start[keys.Slot] = meta.cursor;
   start[keys.FrameTime] = meta.frameTime;
-  if (meta.isMap) {
-    start[keys.IsMap] = 1;
-  }
   if (state.catalog) {
     start[keys.Origin] = (state.rvCatalog || state.catalog).origin;
   }
@@ -217,10 +206,11 @@ function pumpSend() {
 }
 
 function enqueueSend(bytes, meta, gen) {
-  if (meta.isMap) {
-    state.sendQ.unshift({ bytes: bytes, meta: meta, gen: gen });
+  var job = { bytes: bytes, meta: meta, gen: gen };
+  if (gen !== 0 && gen === state.inflight) {
+    state.sendQ.unshift(job);
   } else {
-    state.sendQ.push({ bytes: bytes, meta: meta, gen: gen });
+    state.sendQ.push(job);
   }
   pumpSend();
 }
@@ -236,20 +226,24 @@ function mapTileUrl(host, t) {
 }
 
 function fetchMap(done) {
-  var view = png.mapView(state.lat, state.lon, state.zoom, 256);
+  var view = png.mapView(state.view.lat, state.view.lon, state.view.zoom, 256);
   if (!view.tiles.length) {
     done(new Error("map"));
     return;
   }
   var assembled = png.solidRgba(view.size, 0xaa, 0xaa, 0xaa);
-  var i = 0;
   var hosts = ["de", "fr", "osm"];
-  function nextTile() {
-    if (i >= view.tiles.length) {
-      done(null, assembled, view);
+  var remaining = view.tiles.length;
+  var i;
+  function tileDone() {
+    remaining--;
+    if (remaining > 0) {
       return;
     }
-    var tile = view.tiles[i];
+    png.styleMap(assembled);
+    done(null, assembled, view);
+  }
+  function fetchTile(tile) {
     var hi = 0;
     function got(err, buf) {
       if (err && hi + 1 < hosts.length) {
@@ -263,126 +257,124 @@ function fetchMap(done) {
           png.blitTile(assembled, view, tile, decoded.rgba, decoded.width);
         } catch (e) {}
       }
-      i++;
-      nextTile();
+      tileDone();
     }
     xhr(mapTileUrl(hosts[0], tile), "arraybuffer", got, false);
   }
-  nextTile();
-}
-
-function paint(radarBuf) {
-  var radar = png.readPng(bufOf(radarBuf));
-  if (state.mapRgba) {
-    try {
-      var mapSize = Math.round(Math.sqrt(state.mapRgba.length / 4));
-      return png.compose(state.mapRgba, mapSize, radar, 200, 200, state.mapView);
-    } catch (e) {}
+  for (i = 0; i < view.tiles.length; i++) {
+    fetchTile(view.tiles[i]);
   }
-  png.washRadar(radar.rgba);
-  return png.rgbaToPebblePng(radar.rgba, radar.width, radar.height, 200, 200);
 }
 
-function startMap() {
-  if (state.mapStarted) {
+function ensureMap(done) {
+  if (state.mapRgba) {
+    done();
     return;
   }
-  state.mapStarted = true;
+  if (state.mapWait) {
+    state.mapWait.push(done);
+    return;
+  }
+  state.mapWait = [done];
   fetchMap(function (err, rgba, view) {
-    if (!rgba) {
-      return;
+    if (rgba) {
+      state.mapRgba = rgba;
+      state.mapView = view;
     }
-    state.mapRgba = rgba;
-    state.mapView = view;
-    try {
-      var mapSize = Math.round(Math.sqrt(rgba.length / 4));
-      enqueueSend(png.mapToPebblePng(rgba, mapSize, 200, 200, view), { cursor: 0, frameTime: 0, isMap: true }, 0);
-    } catch (e) {}
-    state.cache = {};
-    state.warmed = false;
-    warmAll();
+    var cbs = state.mapWait;
+    state.mapWait = null;
+    var i;
+    for (i = 0; i < cbs.length; i++) {
+      cbs[i]();
+    }
   });
 }
 
-function pickSlot(cursor) {
-  if (cursor > catalog.NOW && state.libreCatalog) {
-    var nowcast = catalog.pickFrame(state.libreCatalog, cursor);
-    if (nowcast) {
-      return { cat: state.libreCatalog, frame: nowcast };
-    }
-    return null;
+function paint(radarBuf, tileZoom) {
+  var radar = png.readPng(bufOf(radarBuf));
+  if (!state.mapRgba) {
+    throw new Error("map");
   }
-  var pastCat = state.rvCatalog || state.catalog;
-  var past = pastCat ? catalog.pickFrame(pastCat, cursor) : null;
-  if (past) {
-    return { cat: pastCat, frame: past };
-  }
-  if (state.libreCatalog) {
-    var alt = catalog.pickFrame(state.libreCatalog, cursor);
-    if (alt) {
-      return { cat: state.libreCatalog, frame: alt };
-    }
-  }
-  return null;
+  var mapSize = Math.round(Math.sqrt(state.mapRgba.length / 4));
+  return png.composeFrame(
+    state.mapRgba,
+    mapSize,
+    radar,
+    200,
+    200,
+    state.mapView,
+    tileZoom,
+    state.view.zoom
+  );
+}
+
+function sendGap(cursor) {
+  var gap = {};
+  gap[keys.Status] = 3;
+  gap[keys.RequestId] = state.want && state.want.cursor === cursor ? state.inflight : 0;
+  gap[keys.Slot] = cursor;
+  send(gap);
 }
 
 function fetchRadar(picked, done) {
-  xhr(catalog.tileUrl(picked.cat, picked.frame, state.zoom), "arraybuffer", function (err, buf) {
+  xhr(catalog.tileUrl(picked.cat, picked.frame, picked.zoom), "arraybuffer", function (err, buf) {
     done(err ? new Error("gap") : null, buf);
   });
 }
 
 function cacheKeyName(frame) {
-  return frame.time + ":" + state.lat.toFixed(3) + ":" + state.lon.toFixed(3);
+  return frame.time + ":" + state.view.lat.toFixed(3) + ":" + state.view.lon.toFixed(3);
 }
 
-function pushSlot(cursor, png, frameTime, gen) {
-  enqueueSend(png, { cursor: cursor, frameTime: frameTime }, gen);
+function pushSlot(cursor, bytes, frameTime, gen) {
+  enqueueSend(bytes, { cursor: cursor, frameTime: frameTime }, gen);
 }
 
 function paintSlot(cursor, done) {
-  var picked = pickSlot(cursor);
-  if (!picked) {
-    var gap = {};
-    gap[keys.Status] = 3;
-    gap[keys.RequestId] = state.want && state.want.cursor === cursor ? state.inflight : 0;
-    gap[keys.Slot] = cursor;
-    send(gap);
-    done();
-    return;
-  }
-  var key = cacheKeyName(picked.frame);
-  function ship(png) {
+  var picked = catalog.pickRadar(state.rvCatalog, state.libreCatalog, cursor);
+  var key = picked ? cacheKeyName(picked.frame) : null;
+  var radarBuf = null;
+  var radarErr = picked ? null : new Error("gap");
+  var fromCache = false;
+  var pending = 2;
+  function finish() {
+    pending--;
+    if (pending) {
+      return;
+    }
     var gen = state.want && state.want.cursor === cursor ? state.inflight : 0;
-    pushSlot(cursor, png, picked.frame.time, gen);
-    done();
-  }
-  if (state.raw[key] && !state.cache[key]) {
-    try {
-      state.cache[key] = paint(state.raw[key]);
-    } catch (e) {}
-  }
-  if (state.cache[key]) {
-    ship(state.cache[key]);
-    return;
-  }
-  fetchRadar(picked, function (err, buf) {
-    if (err) {
-      var fail = {};
-      fail[keys.Status] = 3;
-      fail[keys.RequestId] = state.want && state.want.cursor === cursor ? state.inflight : 0;
-      fail[keys.Slot] = cursor;
-      send(fail);
+    if (!state.mapRgba || radarErr || (!fromCache && !radarBuf)) {
+      sendGap(cursor);
+      done();
+      return;
+    }
+    if (fromCache) {
+      pushSlot(cursor, state.cache[key], picked.frame.time, gen);
       done();
       return;
     }
     try {
-      state.raw[key] = buf;
-      state.cache[key] = paint(buf);
-      ship(state.cache[key]);
+      state.cache[key] = paint(radarBuf, picked.zoom);
+      pushSlot(cursor, state.cache[key], picked.frame.time, gen);
     } catch (e) {
-      done();
+      sendGap(cursor);
     }
+    done();
+  }
+  ensureMap(finish);
+  if (!picked) {
+    finish();
+    return;
+  }
+  if (state.cache[key]) {
+    fromCache = true;
+    finish();
+    return;
+  }
+  fetchRadar(picked, function (err, buf) {
+    radarErr = err;
+    radarBuf = buf;
+    finish();
   });
 }
 
@@ -401,10 +393,13 @@ function pumpWarm() {
   });
 }
 
-function warmAll() {
+function prefetch(cursor) {
+  var set = catalog.warmSet(cursor);
   var i;
-  for (i = 0; i < 9; i++) {
-    state.warmQ.push(i);
+  for (i = 0; i < set.length; i++) {
+    if (set[i] !== cursor) {
+      state.warmQ.push(set[i]);
+    }
   }
   pumpWarm();
 }
@@ -416,12 +411,8 @@ function serve(cursor, gen) {
   if (gen !== state.inflight) {
     return;
   }
-  startMap();
   paintSlot(cursor, function () {
-    if (!state.warmed) {
-      state.warmed = true;
-      warmAll();
-    }
+    prefetch(cursor);
   });
 }
 
@@ -439,8 +430,8 @@ function locate(done) {
   }
   navigator.geolocation.getCurrentPosition(
     function (pos) {
-      state.lat = pos.coords.latitude;
-      state.lon = pos.coords.longitude;
+      state.view.lat = pos.coords.latitude;
+      state.view.lon = pos.coords.longitude;
       done();
     },
     function () {
@@ -463,7 +454,10 @@ function boot() {
       var hello = {};
       hello[keys.Status] = 0;
       hello[keys.Origin] = (state.rvCatalog || cat).origin;
-      hello[keys.HasNowcast] = pickSlot(8) || pickSlot(5) ? 1 : 0;
+      hello[keys.HasNowcast] = catalog.pickRadar(state.rvCatalog, state.libreCatalog, 8) ||
+        catalog.pickRadar(state.rvCatalog, state.libreCatalog, 5)
+        ? 1
+        : 0;
       send(hello);
       var cursor = state.want ? state.want.cursor : catalog.NOW;
       var gen = state.want ? state.want.gen : 1;

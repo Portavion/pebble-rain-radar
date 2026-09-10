@@ -632,6 +632,46 @@ function compose(mapRgba, mapSize, radar, nw, nh, view) {
   return rgbaToPebblePng(over, mapSize, mapSize, nw, nh);
 }
 
+function fitRadarToViewZoom(radar, viewZoom, tileZoom) {
+  var zoomSteps = viewZoom - tileZoom;
+  var scale;
+  var tilePx;
+  var cropPx;
+  var cropOrigin;
+  var cropped;
+  var y;
+  var x;
+  if (zoomSteps <= 0) {
+    return radar;
+  }
+  scale = 1 << zoomSteps;
+  tilePx = radar.width;
+  cropPx = (tilePx / scale) | 0;
+  cropOrigin = ((tilePx - cropPx) / 2) | 0;
+  cropped = new Uint8Array(cropPx * cropPx * 4);
+  for (y = 0; y < cropPx; y++) {
+    for (x = 0; x < cropPx; x++) {
+      var di = (y * cropPx + x) * 4;
+      var si = ((cropOrigin + y) * tilePx + (cropOrigin + x)) * 4;
+      cropped[di] = radar.rgba[si];
+      cropped[di + 1] = radar.rgba[si + 1];
+      cropped[di + 2] = radar.rgba[si + 2];
+      cropped[di + 3] = radar.rgba[si + 3];
+    }
+  }
+  return {
+    width: tilePx,
+    height: tilePx,
+    rgba: scaleNearest(cropped, cropPx, cropPx, tilePx, tilePx)
+  };
+}
+
+function composeFrame(mapRgba, mapSize, radar, nw, nh, view, tileZoom, viewZoom) {
+  viewZoom = viewZoom == null ? 9 : viewZoom;
+  tileZoom = tileZoom == null ? viewZoom : tileZoom;
+  return compose(mapRgba, mapSize, fitRadarToViewZoom(radar, viewZoom, tileZoom), nw, nh, view);
+}
+
 module.exports = {
   toPebblePng: toPebblePng,
   readPng: readPng,
@@ -642,6 +682,8 @@ module.exports = {
   rainColor: rainColor,
   scaleNearest: scaleNearest,
   compose: compose,
+  composeFrame: composeFrame,
+  styleMap: styleMap,
   washRadar: washRadar,
   rainOnlyPng: rainOnlyPng,
   mapToPebblePng: mapToPebblePng,

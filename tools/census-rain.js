@@ -103,7 +103,7 @@ async function live(name, catalogUrl) {
     console.log(JSON.stringify({ label: name, error: "no now frame" }));
     return;
   }
-  var url = catalog.tileUrl(cat, frame, catalog.TILE_ZOOM);
+  var url = catalog.tileUrl(cat, frame, catalog.sourceZoom(name === "rainviewer" ? catalog.RV_ZOOM_CAP : catalog.LIBRE_ZOOM_CAP));
   var buf = await get(url);
   var radar = png.readPng(buf);
   var map = png.solidRgba(256, 85, 170, 85);
