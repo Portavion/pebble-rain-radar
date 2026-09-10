@@ -1,10 +1,10 @@
 # Rainradar
 
-Pebble Time 2 app that shows rain radar around your phone's GPS fix. The phone downloads OpenStreetMap and radar tiles, palettizes them, and sends one 200x200 frame to the watch. Up and Down walk the last hour and the next hour in 15-minute steps. Select jumps to the latest observed frame.
+Pebble Time 2 app that shows rain radar around your phone's GPS fix. The phone downloads OpenStreetMap tiles at zoom 9 (about 50 km, a Greater London-sized window) and radar tiles, composites them into one 200x200 palettized PNG per time slot, and sends that frame to the watch. Up and Down walk the last hour and the next hour in 15-minute steps. Select jumps to the latest observed frame.
 
 Source: [github.com/Portavion/pebble-rain-radar](https://github.com/Portavion/pebble-rain-radar).
 
-Radar tiles come from [LibreWXR](https://librewxr.net/) (EUMETNET OPERA over the UK and France, plus a 60-minute nowcast). Radar data is CC-BY-4.0. If that host is down, the app falls back to RainViewer's past-only tiles. Future slots then show "no data". Map tiles are © OpenStreetMap. Rain colours follow the usual UK radar scale: cyan through yellow and red.
+Past frames come from [RainViewer](https://www.rainviewer.com/) at zoom 7, cropped into the zoom-9 map. Nowcast frames come from [LibreWXR](https://librewxr.net/) (EUMETNET OPERA, CC-BY-4.0) at zoom 9. If RainViewer is down, past slots use LibreWXR. If LibreWXR is down, future slots show "no data". Map tiles are © OpenStreetMap. Rain colours follow the usual UK radar scale: cyan through yellow and red.
 
 ## Build
 

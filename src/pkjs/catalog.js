@@ -1,8 +1,26 @@
 var OFFSETS = [-60, -45, -30, -15, 0, 15, 30, 45, 60];
 var NOW = 4;
 var MATCH_SLACK = 10 * 60;
-var TILE_ZOOM = 5;
+var VIEW_ZOOM = 9;
+var RV_ZOOM_CAP = 7;
+var LIBRE_ZOOM_CAP = 9;
 var TILE_SIZE = 256;
+
+function sourceZoom(cap) {
+  return Math.min(VIEW_ZOOM, cap);
+}
+
+function warmSet(cursor) {
+  var out = [];
+  if (cursor > 0) {
+    out.push(cursor - 1);
+  }
+  out.push(cursor);
+  if (cursor < OFFSETS.length - 1) {
+    out.push(cursor + 1);
+  }
+  return out;
+}
 
 function parseCatalog(json, lat, lon) {
   if (!json || !json.host || !json.radar) {
@@ -93,8 +111,31 @@ function pickFrame(catalog, cursor) {
   return nearestInPool(poolForCursor(catalog, cursor), target, catalog.origin);
 }
 
+function pickRadar(rvCatalog, libreCatalog, cursor) {
+  if (cursor > NOW) {
+    var nowcast = libreCatalog ? pickFrame(libreCatalog, cursor) : null;
+    if (!nowcast) {
+      return null;
+    }
+    return { cat: libreCatalog, frame: nowcast, zoom: sourceZoom(LIBRE_ZOOM_CAP) };
+  }
+  if (rvCatalog) {
+    var rv = pickFrame(rvCatalog, cursor);
+    if (rv) {
+      return { cat: rvCatalog, frame: rv, zoom: sourceZoom(RV_ZOOM_CAP) };
+    }
+  }
+  if (libreCatalog) {
+    var alt = pickFrame(libreCatalog, cursor);
+    if (alt) {
+      return { cat: libreCatalog, frame: alt, zoom: sourceZoom(LIBRE_ZOOM_CAP) };
+    }
+  }
+  return null;
+}
+
 function tileUrl(catalog, frame, zoom, size) {
-  var z = zoom == null ? TILE_ZOOM : zoom;
+  var z = zoom == null ? VIEW_ZOOM : zoom;
   var sz = size == null ? TILE_SIZE : size;
   return (
     catalog.host +
@@ -129,10 +170,15 @@ module.exports = {
   OFFSETS: OFFSETS,
   NOW: NOW,
   MATCH_SLACK: MATCH_SLACK,
-  TILE_ZOOM: TILE_ZOOM,
+  VIEW_ZOOM: VIEW_ZOOM,
+  RV_ZOOM_CAP: RV_ZOOM_CAP,
+  LIBRE_ZOOM_CAP: LIBRE_ZOOM_CAP,
   TILE_SIZE: TILE_SIZE,
+  sourceZoom: sourceZoom,
   parseCatalog: parseCatalog,
   pickFrame: pickFrame,
+  pickRadar: pickRadar,
+  warmSet: warmSet,
   tileUrl: tileUrl,
   timelineSlots: timelineSlots
 };
