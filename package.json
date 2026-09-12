@@ -11,6 +11,7 @@
     "url": "git+https://github.com/Portavion/pebble-rain-radar.git"
   },
   "dependencies": {
+    "@rebble/clay": "^1.1.0",
     "pako": "^2.2.0"
   },
   "pebble": {
@@ -22,7 +23,8 @@
       "emery"
     ],
     "capabilities": [
-      "location"
+      "location",
+      "configurable"
     ],
     "watchapp": {
       "watchface": false

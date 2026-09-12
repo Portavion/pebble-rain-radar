@@ -1,15 +1,19 @@
+var Clay = require("@rebble/clay");
 var catalog = require("./catalog");
+var clayConfig = require("./config");
+var location = require("./location");
 var png = require("./png");
 var keys = require("message_keys");
 
+var clay = new Clay(clayConfig, null, { autoHandleEvents: false });
+
 var CHUNK = 4000;
-var DEBUG_LAT = 51.5074;
-var DEBUG_LON = -0.1278;
 var LIBRE = "https://api.librewxr.net/public/weather-maps.json";
 var RAINVIEWER = "https://api.rainviewer.com/public/weather-maps.json";
 
 var state = {
-  view: { lat: DEBUG_LAT, lon: DEBUG_LON, zoom: catalog.VIEW_ZOOM },
+  view: { lat: location.DEFAULT_LAT, lon: location.DEFAULT_LON, zoom: catalog.VIEW_ZOOM },
+  locMode: "gps",
   catalog: null,
   cache: {},
   inflight: 0,
@@ -423,8 +427,27 @@ function bufOf(buf) {
   return new Uint8Array(buf);
 }
 
+function applySaved() {
+  var saved = location.fromStorage(typeof localStorage !== "undefined" ? localStorage : null);
+  state.locMode = saved.mode;
+  state.view.lat = saved.lat;
+  state.view.lon = saved.lon;
+}
+
+function dropMap() {
+  state.mapRgba = null;
+  state.mapView = null;
+  state.mapWait = null;
+  state.cache = {};
+  state.catalog = null;
+  state.rvCatalog = null;
+  state.libreCatalog = null;
+  state.sendQ = [];
+  state.warmQ = [];
+}
+
 function locate(done) {
-  if (!navigator.geolocation) {
+  if (state.locMode === "fixed" || !navigator.geolocation) {
     done();
     return;
   }
@@ -441,30 +464,35 @@ function locate(done) {
   );
 }
 
+function startRadar() {
+  loadCatalog(function (err, cat) {
+    if (err) {
+      var dict = {};
+      dict[keys.Status] = 2;
+      send(dict);
+      return;
+    }
+    state.catalog = cat;
+    var hello = {};
+    hello[keys.Status] = 0;
+    hello[keys.Origin] = (state.rvCatalog || cat).origin;
+    hello[keys.HasNowcast] = catalog.pickRadar(state.rvCatalog, state.libreCatalog, 8) ||
+      catalog.pickRadar(state.rvCatalog, state.libreCatalog, 5)
+      ? 1
+      : 0;
+    send(hello);
+    var cursor = state.want ? state.want.cursor : catalog.NOW;
+    var gen = state.want ? state.want.gen : 1;
+    state.inflight = gen;
+    state.want = { cursor: cursor, gen: gen };
+    serve(cursor, gen);
+  });
+}
+
 function boot() {
+  applySaved();
   locate(function () {
-    loadCatalog(function (err, cat) {
-      if (err) {
-        var dict = {};
-        dict[keys.Status] = 2;
-        send(dict);
-        return;
-      }
-      state.catalog = cat;
-      var hello = {};
-      hello[keys.Status] = 0;
-      hello[keys.Origin] = (state.rvCatalog || cat).origin;
-      hello[keys.HasNowcast] = catalog.pickRadar(state.rvCatalog, state.libreCatalog, 8) ||
-        catalog.pickRadar(state.rvCatalog, state.libreCatalog, 5)
-        ? 1
-        : 0;
-      send(hello);
-      var cursor = state.want ? state.want.cursor : catalog.NOW;
-      var gen = state.want ? state.want.gen : 1;
-      state.inflight = gen;
-      state.want = { cursor: cursor, gen: gen };
-      serve(cursor, gen);
-    });
+    startRadar();
   });
 }
 
@@ -472,6 +500,19 @@ Pebble.addEventListener("ready", function () {
   var ready = {};
   ready[keys.JSReady] = 1;
   send(ready);
+  boot();
+});
+
+Pebble.addEventListener("showConfiguration", function () {
+  Pebble.openURL(clay.generateUrl());
+});
+
+Pebble.addEventListener("webviewclosed", function (e) {
+  if (!e || !e.response) {
+    return;
+  }
+  clay.getSettings(e.response, false);
+  dropMap();
   boot();
 });
 
