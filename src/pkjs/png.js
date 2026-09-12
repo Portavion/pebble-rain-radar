@@ -374,9 +374,8 @@ function assembleMap(view, parts) {
   return dst;
 }
 
-var MAP_WATER = [255, 255, 255];
-var MAP_LAND = [85, 170, 85];
-var MAP_DETAIL = [170, 255, 170];
+var MAP_LAND = [255, 255, 255];
+var MAP_WATER = [170, 170, 170];
 var RAIN = [
   [170, 255, 255],
   [0, 170, 255],
@@ -400,24 +399,41 @@ var BLUE_KEYS = [
   [255, 170, 255, 55]
 ];
 
+function lum(r, g, b) {
+  return (r * 299 + g * 587 + b * 114) / 1000;
+}
+
+function isBlue(r, g, b) {
+  return b > r + 8 && b >= g - 4 && (b > 110 || b > r + 16);
+}
+
+function isRoad(r, g, b) {
+  var L = lum(r, g, b);
+  var c = Math.max(r, g, b) - Math.min(r, g, b);
+  if (L >= 214 || isBlue(r, g, b)) {
+    return false;
+  }
+  if (r > g + 8 && r > b + 8) {
+    return true;
+  }
+  return c > 18 && L > 90 && L < 210 && r >= g;
+}
+
 function styleMap(rgba) {
   var i;
   for (i = 0; i < rgba.length; i += 4) {
     var r = rgba[i];
     var g = rgba[i + 1];
     var b = rgba[i + 2];
-    var lum = (r * 299 + g * 587 + b * 114) / 1000;
-    var t;
-    if ((b > 150 && b >= g + 8 && b >= r + 20) || (b > 180 && g > 180 && r < 210)) {
-      t = MAP_WATER;
-    } else if (g >= r - 8 && g >= b + 12 && lum > 140) {
-      t = MAP_DETAIL;
-    } else {
-      t = MAP_LAND;
+    if (isBlue(r, g, b)) {
+      rgba[i] = MAP_WATER[0];
+      rgba[i + 1] = MAP_WATER[1];
+      rgba[i + 2] = MAP_WATER[2];
+    } else if (!isRoad(r, g, b) && lum(r, g, b) >= 200) {
+      rgba[i] = MAP_LAND[0];
+      rgba[i + 1] = MAP_LAND[1];
+      rgba[i + 2] = MAP_LAND[2];
     }
-    rgba[i] = t[0];
-    rgba[i + 1] = t[1];
-    rgba[i + 2] = t[2];
     rgba[i + 3] = 255;
   }
   return rgba;
@@ -522,114 +538,16 @@ function rainOnlyPng(radar, nw, nh) {
   return rgbaToPebblePng(rgba, radar.width, radar.height, nw, nh, false);
 }
 
-var CITIES = [
-  { name: "LONDON", lat: 51.5074, lon: -0.1278 },
-  { name: "PARIS", lat: 48.8566, lon: 2.3522 },
-  { name: "LYON", lat: 45.764, lon: 4.8357 },
-  { name: "LILLE", lat: 50.6292, lon: 3.0573 },
-  { name: "NANTES", lat: 47.2184, lon: -1.5536 },
-  { name: "MARSEILLE", lat: 43.2965, lon: 5.3698 },
-  { name: "MANCHESTER", lat: 53.4808, lon: -2.2426 },
-  { name: "BIRMINGHAM", lat: 52.4862, lon: -1.8904 },
-  { name: "BRUSSELS", lat: 50.8503, lon: 4.3517 },
-  { name: "AMSTERDAM", lat: 52.3676, lon: 4.9041 },
-  { name: "DUBLIN", lat: 53.3498, lon: -6.2603 },
-  { name: "CARDIFF", lat: 51.4816, lon: -3.1791 }
-];
-
-var GLYPH = {
-  A: [0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1],
-  B: [1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0],
-  C: [0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1],
-  D: [1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 0],
-  E: [1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 1],
-  F: [1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 0],
-  G: [0, 1, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1],
-  H: [1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1],
-  I: [1, 1, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1],
-  L: [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 1],
-  M: [1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1],
-  N: [1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1],
-  O: [0, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 0, 1, 0],
-  P: [1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 0, 1, 0, 0],
-  R: [1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 0, 1],
-  S: [0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0],
-  T: [1, 1, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
-  U: [1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 0, 1, 0],
-  Y: [1, 0, 1, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0]
-};
-
-function plot(rgba, size, x, y, r, g, b) {
-  if (x < 0 || y < 0 || x >= size || y >= size) {
-    return;
-  }
-  var o = (y * size + x) * 4;
-  rgba[o] = r;
-  rgba[o + 1] = g;
-  rgba[o + 2] = b;
-  rgba[o + 3] = 255;
+function mapToPebblePng(mapRgba, mapSize, nw, nh) {
+  return rgbaToPebblePng(mapRgba, mapSize, mapSize, nw, nh, false);
 }
 
-function stampGlyph(rgba, size, x0, y0, bits) {
-  var i;
-  for (i = 0; i < 15; i++) {
-    if (!bits[i]) {
-      continue;
-    }
-    var x = x0 + (i % 3);
-    var y = y0 + ((i / 3) | 0);
-    plot(rgba, size, x - 1, y, 255, 255, 255);
-    plot(rgba, size, x + 1, y, 255, 255, 255);
-    plot(rgba, size, x, y - 1, 255, 255, 255);
-    plot(rgba, size, x, y + 1, 255, 255, 255);
-    plot(rgba, size, x, y, 0, 0, 0);
-  }
-}
-
-function stampText(rgba, size, x, y, text) {
-  var i;
-  for (i = 0; i < text.length; i++) {
-    var g = GLYPH[text.charAt(i)];
-    if (g) {
-      stampGlyph(rgba, size, x + i * 4, y, g);
-    }
-  }
-}
-
-function labelCities(rgba, view) {
-  var i;
-  for (i = 0; i < CITIES.length; i++) {
-    var c = CITIES[i];
-    var x = Math.round(lonToX(c.lon, view.z) - view.left);
-    var y = Math.round(latToY(c.lat, view.z) - view.top);
-    if (x < 4 || y < 8 || x >= view.size - 4 || y >= view.size - 4) {
-      continue;
-    }
-    plot(rgba, view.size, x, y, 0, 0, 0);
-    plot(rgba, view.size, x + 1, y, 255, 255, 255);
-    stampText(rgba, view.size, x + 3, y - 6, c.name);
-  }
-}
-
-function mapToPebblePng(mapRgba, mapSize, nw, nh, view) {
-  var base = new Uint8Array(mapRgba);
-  if (view) {
-    labelCities(base, view);
-  }
-  return rgbaToPebblePng(base, mapSize, mapSize, nw, nh, false);
-}
-
-function compose(mapRgba, mapSize, radar, nw, nh, view) {
+function compose(mapRgba, mapSize, radar, nw, nh) {
   var radarRgba = radar.rgba;
   if (radar.width !== mapSize || radar.height !== mapSize) {
     radarRgba = scaleNearest(radar.rgba, radar.width, radar.height, mapSize, mapSize);
   }
-  var base = new Uint8Array(mapRgba);
-  if (view) {
-    labelCities(base, view);
-  }
-  var over = overlay(base, radarRgba, mapSize * mapSize);
-  return rgbaToPebblePng(over, mapSize, mapSize, nw, nh);
+  return rgbaToPebblePng(overlay(mapRgba, radarRgba, mapSize * mapSize), mapSize, mapSize, nw, nh);
 }
 
 function fitRadarToViewZoom(radar, viewZoom, tileZoom) {
