@@ -4,7 +4,9 @@ Pebble Time 2 app that shows rain radar around your phone's GPS fix, or a locati
 
 Source: [github.com/Portavion/pebble-rain-radar](https://github.com/Portavion/pebble-rain-radar).
 
-Past frames come from [RainViewer](https://www.rainviewer.com/) at zoom 7, cropped into the zoom-9 map. Nowcast frames come from [LibreWXR](https://librewxr.net/) (EUMETNET OPERA, CC-BY-4.0) at zoom 9. If RainViewer is down, past slots use LibreWXR. If LibreWXR is down, future slots show "no data". Map tiles are © OpenStreetMap. Rain colours follow the usual UK radar scale: cyan through yellow and red.
+Past frames come from [RainViewer](https://www.rainviewer.com/) at zoom 7, cropped into the zoom-9 map. Nowcast frames come from [LibreWXR](https://librewxr.net/) (EUMETNET OPERA, CC-BY-4.0) at zoom 9. If RainViewer is down, past slots use LibreWXR. If LibreWXR is down, future slots show "no data".
+
+The basemap is [Esri World Street Map](https://www.arcgis.com/home/item.html?id=3b93337983e9436f8db950e38a8629af) (legacy raster export). Phone JS washes cream land to white and water to grey so cyan-yellow-red rain is the only bright colour; brown roads and town names stay. If Esri is down, the same wash runs on [OpenStreetMap](https://www.openstreetmap.org/copyright) Carto tiles (`tile.openstreetmap.de`, then `tile.openstreetmap.fr`, then `tile.openstreetmap.org`). Sources: Esri, TomTom, Garmin, FAO, NOAA, USGS, © OpenStreetMap contributors, and the GIS User Community.
 
 ## Build
 

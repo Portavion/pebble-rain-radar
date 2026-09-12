@@ -11,3 +11,4 @@ node_modules/
 .lock-waf_nt_build
 tools/__pycache__/
 tools/fixtures/*-pebble.png
+.scratch/

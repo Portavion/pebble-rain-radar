@@ -229,12 +229,37 @@ function mapTileUrl(host, t) {
   return "https://tile.openstreetmap.org/" + t.z + "/" + t.x + "/" + t.y + ".png";
 }
 
-function fetchMap(done) {
-  var view = png.mapView(state.view.lat, state.view.lon, state.view.zoom, 256);
-  if (!view.tiles.length) {
-    done(new Error("map"));
-    return;
-  }
+// ponytail: Esri legacy World_Street_Map export, no key. Official API if they shut this off.
+function esriStreetUrl(view) {
+  var n = 256 * (1 << view.z);
+  var R = 20037508.342789244;
+  var xmin = (view.left / n) * (2 * R) - R;
+  var xmax = ((view.left + view.size) / n) * (2 * R) - R;
+  var ymax = R - (view.top / n) * (2 * R);
+  var ymin = R - ((view.top + view.size) / n) * (2 * R);
+  return (
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/export?bbox=" +
+    xmin +
+    "," +
+    ymin +
+    "," +
+    xmax +
+    "," +
+    ymax +
+    "&bboxSR=3857&imageSR=3857&size=" +
+    view.size +
+    "," +
+    view.size +
+    "&format=png&transparent=false&f=image"
+  );
+}
+
+function washMap(rgba, view, done) {
+  png.styleMap(rgba);
+  done(null, rgba, view);
+}
+
+function fetchOsmMap(view, done) {
   var assembled = png.solidRgba(view.size, 0xaa, 0xaa, 0xaa);
   var hosts = ["de", "fr", "osm"];
   var remaining = view.tiles.length;
@@ -244,15 +269,14 @@ function fetchMap(done) {
     if (remaining > 0) {
       return;
     }
-    png.styleMap(assembled);
-    done(null, assembled, view);
+    washMap(assembled, view, done);
   }
   function fetchTile(tile) {
     var hi = 0;
     function got(err, buf) {
       if (err && hi + 1 < hosts.length) {
         hi++;
-        xhr(mapTileUrl(hosts[hi], tile), "arraybuffer", got, hosts[hi] === "osm");
+        xhr(mapTileUrl(hosts[hi], tile), "arraybuffer", got, true);
         return;
       }
       if (!err) {
@@ -263,11 +287,31 @@ function fetchMap(done) {
       }
       tileDone();
     }
-    xhr(mapTileUrl(hosts[0], tile), "arraybuffer", got, false);
+    xhr(mapTileUrl(hosts[0], tile), "arraybuffer", got, true);
   }
   for (i = 0; i < view.tiles.length; i++) {
     fetchTile(view.tiles[i]);
   }
+}
+
+function fetchMap(done) {
+  var view = png.mapView(state.view.lat, state.view.lon, state.view.zoom, 256);
+  if (!view.tiles.length) {
+    done(new Error("map"));
+    return;
+  }
+  xhr(esriStreetUrl(view), "arraybuffer", function (err, buf) {
+    if (!err) {
+      try {
+        var decoded = png.readPng(bufOf(buf));
+        if (decoded.width === view.size && decoded.height === view.size) {
+          washMap(decoded.rgba, view, done);
+          return;
+        }
+      } catch (e) {}
+    }
+    fetchOsmMap(view, done);
+  });
 }
 
 function ensureMap(done) {

@@ -42,14 +42,23 @@ for (i = 0; i < radar.rgba.length; i += 4) {
 if (painted < 100) {
   throw new Error("fixture rain");
 }
-var water = png.solidRgba(8, 0, 0, 200);
+var water = png.solidRgba(8, 170, 208, 224);
 png.styleMap(water);
-if (water[0] !== 255 || water[1] !== 255 || water[2] !== 255) {
+if (water[0] !== 170 || water[1] !== 170 || water[2] !== 170) {
   throw new Error("styleMap water " + water[0] + "," + water[1] + "," + water[2]);
 }
+var land = png.solidRgba(8, 242, 226, 170);
+png.styleMap(land);
+if (land[0] !== 255 || land[1] !== 255 || land[2] !== 255) {
+  throw new Error("styleMap land " + land[0] + "," + land[1] + "," + land[2]);
+}
+var road = png.solidRgba(8, 209, 135, 100);
+png.styleMap(road);
+if (road[0] === 255 && road[1] === 255 && road[2] === 255) {
+  throw new Error("styleMap bleached road");
+}
 var z7 = png.solidRgba(256, 136, 221, 238);
-var z9map = png.solidRgba(256, 85, 170, 85);
-png.styleMap(z9map);
+var z9map = png.solidRgba(256, 255, 255, 255);
 var cropped = png.composeFrame(z9map, 256, { width: 256, height: 256, rgba: z7 }, 200, 200, view, 7, 9);
 if (cropped[0] !== 0x89 || cropped[25] !== 3) {
   throw new Error("composeFrame png");
