@@ -195,13 +195,13 @@ static void step_cursor(int dir) {
 static void up_click(ClickRecognizerRef recognizer, void *context) {
   (void)recognizer;
   (void)context;
-  step_cursor(-1);
+  step_cursor(1);
 }
 
 static void down_click(ClickRecognizerRef recognizer, void *context) {
   (void)recognizer;
   (void)context;
-  step_cursor(1);
+  step_cursor(-1);
 }
 
 static void select_click(ClickRecognizerRef recognizer, void *context) {
