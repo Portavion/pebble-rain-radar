@@ -22,6 +22,24 @@ module.exports = [
       },
       {
         type: "input",
+        messageKey: "City",
+        defaultValue: "",
+        label: "City",
+        attributes: {
+          placeholder: "Paris, Manchester…"
+        }
+      },
+      {
+        type: "text",
+        defaultValue:
+          "Type a city and Save. Nominatim looks it up and switches to Fixed. © OpenStreetMap contributors."
+      },
+      {
+        type: "heading",
+        defaultValue: "Advanced"
+      },
+      {
+        type: "input",
         messageKey: "Lat",
         defaultValue: "51.5074",
         label: "Latitude",

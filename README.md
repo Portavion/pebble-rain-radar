@@ -22,7 +22,11 @@ Needs the Pebble SDK (`uv tool install pebble-tool`, then `pebble sdk install la
 
 In the Rebble phone app, tap the gear next to Rainradar. On the emulator, `pebble emu-app-config`.
 
-Phone GPS tries the phone first and falls back to the saved lat/lon if the fix fails or is missing. Fixed location skips GPS and uses only those coordinates. Until you change them, the saved point is London (51.5074, -0.1278), so the emulator still works without a GPS API. Saving recenters the radar window and drops the old map tiles.
+Type a city (Paris, Manchester) and Save. The phone asks Nominatim for that place, stores the coordinates, switches to Fixed, and the next time you open settings you'll see the matched name. Latitude and longitude stay under Advanced for the emulator or an exact point.
+
+Phone GPS tries the phone first and falls back to the saved coordinates if the fix fails or is missing. Fixed location skips GPS. Until you change them, the saved point is London (51.5074, -0.1278), so the emulator still works without a GPS API. Saving a new city or coordinates recenters the radar window and drops the old map tiles.
+
+City search uses the public [Nominatim](https://nominatim.openstreetmap.org/) API (© OpenStreetMap contributors, [ODbL](https://www.openstreetmap.org/copyright)). One request per new city, last hit cached on the phone, no autocomplete. Requests send User-Agent `Rainradar/1.0` and the GitHub URL.
 
 ## Buttons
 
@@ -38,4 +42,5 @@ The footer shows the frame's real clock time. Source frames are 10 minutes apart
 node tools/check-catalog.js
 node tools/check-png.js
 node tools/check-location.js
+node tools/check-geocode.js
 ```
