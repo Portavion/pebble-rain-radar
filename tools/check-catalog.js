@@ -68,7 +68,7 @@ if (catalog.pickRadar(pastOnly, null, 5) !== null) {
   throw new Error("pick gap");
 }
 var warm = catalog.warmSet(4);
-if (warm.length !== 3 || warm[0] !== 3 || warm[1] !== 4 || warm[2] !== 5) {
+if (warm.length !== 8 || warm[0] !== 0 || warm[3] !== 3 || warm[4] !== 5 || warm[7] !== 8) {
   throw new Error("warm");
 }
 console.log("ok");

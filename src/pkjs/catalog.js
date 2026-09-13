@@ -12,12 +12,11 @@ function sourceZoom(cap) {
 
 function warmSet(cursor) {
   var out = [];
-  if (cursor > 0) {
-    out.push(cursor - 1);
-  }
-  out.push(cursor);
-  if (cursor < OFFSETS.length - 1) {
-    out.push(cursor + 1);
+  var i;
+  for (i = 0; i < OFFSETS.length; i++) {
+    if (i !== cursor) {
+      out.push(i);
+    }
   }
   return out;
 }

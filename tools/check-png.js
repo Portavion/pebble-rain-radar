@@ -57,6 +57,12 @@ png.styleMap(road);
 if (road[0] === 255 && road[1] === 255 && road[2] === 255) {
   throw new Error("styleMap bleached road");
 }
+if (png.rainColor(0, 0, 0, 255) || png.rainColor(2, 3, 3, 255)) {
+  throw new Error("empty black as rain");
+}
+if (!png.rainColor(136, 221, 238, 255) || !png.rainColor(0, 153, 204, 255)) {
+  throw new Error("dropped real rain");
+}
 var z7 = png.solidRgba(256, 136, 221, 238);
 var z9map = png.solidRgba(256, 255, 255, 255);
 var cropped = png.composeFrame(z9map, 256, { width: 256, height: 256, rgba: z7 }, 200, 200, view, 7, 9);

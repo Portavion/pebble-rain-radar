@@ -27,6 +27,7 @@ static bool s_loading_up = true;
 static GBitmap *s_frame_bitmap;
 static uint8_t *s_img_data;
 static int s_img_size;
+// ponytail: keep all 9 PNGs so clicks are local. Drop farthest if emery OOMs.
 static uint8_t *s_slot_png[SLOT_COUNT];
 static int s_slot_len[SLOT_COUNT];
 static time_t s_slot_time[SLOT_COUNT];
@@ -111,21 +112,6 @@ static void drop_frame(void) {
   }
 }
 
-static void retain_warm(int cursor) {
-  int i;
-  for (i = 0; i < SLOT_COUNT; i++) {
-    int d = i - cursor;
-    if (d < 0) {
-      d = -d;
-    }
-    if (d > 1 && s_slot_png[i]) {
-      free(s_slot_png[i]);
-      s_slot_png[i] = NULL;
-      s_slot_len[i] = 0;
-    }
-  }
-}
-
 static bool show_slot(int slot) {
   GBitmap *next;
   GRect b;
@@ -148,8 +134,21 @@ static bool show_slot(int slot) {
   s_view = VIEW_READY;
   format_ready_footer();
   hide_loading();
-  retain_warm(s_cursor);
   return true;
+}
+
+static void send_want(void) {
+  DictionaryIterator *iter;
+  if (!s_js_ready) {
+    return;
+  }
+  if (app_message_outbox_begin(&iter) != APP_MSG_OK) {
+    return;
+  }
+  dict_write_int32(iter, MESSAGE_KEY_SlotWanted, s_cursor);
+  dict_write_uint32(iter, MESSAGE_KEY_RequestId, s_request_id);
+  dict_write_int32(iter, MESSAGE_KEY_Slot, s_cursor);
+  app_message_outbox_send();
 }
 
 static void request_slot(void) {
@@ -161,14 +160,7 @@ static void request_slot(void) {
   if (s_origin) {
     format_slot_footer(s_origin + SLOT_OFFSETS[s_cursor] * 60, "");
   }
-  DictionaryIterator *iter;
-  if (app_message_outbox_begin(&iter) != APP_MSG_OK) {
-    return;
-  }
-  dict_write_int32(iter, MESSAGE_KEY_SlotWanted, s_cursor);
-  dict_write_uint32(iter, MESSAGE_KEY_RequestId, s_request_id);
-  dict_write_int32(iter, MESSAGE_KEY_Slot, s_cursor);
-  app_message_outbox_send();
+  send_want();
 }
 
 static void go_cursor(int next) {
@@ -229,8 +221,11 @@ static int slot_from(DictionaryIterator *iter) {
   return slot;
 }
 
-static bool accept_rid(uint32_t rid) {
-  return rid == 0 || rid == s_request_id;
+static bool take_recv(uint32_t rid) {
+  if (rid == s_request_id && rid != 0) {
+    return true;
+  }
+  return rid == 0 && !s_img_data;
 }
 
 static void inbox_received(DictionaryIterator *iter, void *context) {
@@ -278,7 +273,7 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
 
   Tuple *len = dict_find(iter, MESSAGE_KEY_DataLength);
   if (len) {
-    if (!accept_rid(rid)) {
+    if (!take_recv(rid)) {
       return;
     }
     s_recv_id = rid;
@@ -293,7 +288,7 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
 
   Tuple *chunk = dict_find(iter, MESSAGE_KEY_DataChunk);
   if (chunk) {
-    if (!accept_rid(s_recv_id) || !s_img_data) {
+    if (!s_img_data || rid != s_recv_id) {
       return;
     }
     Tuple *index_t = dict_find(iter, MESSAGE_KEY_Index);
@@ -312,7 +307,7 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
 
   Tuple *done = dict_find(iter, MESSAGE_KEY_Complete);
   if (done) {
-    if (!accept_rid(s_recv_id) || !s_img_data) {
+    if (!s_img_data || rid != s_recv_id) {
       return;
     }
     int slot = slot_from(iter);
