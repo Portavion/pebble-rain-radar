@@ -45,7 +45,10 @@ function xhr(url, type, done, osm) {
     } catch (e) {}
   }
   try {
-    req.setRequestHeader("User-Agent", "Rainradar/1.0");
+    req.setRequestHeader(
+      "User-Agent",
+      "Rainradar/1.0 (https://github.com/Portavion/pebble-rain-radar)"
+    );
   } catch (e) {}
   req.onload = function () {
     if (req.status >= 200 && req.status < 300) {
@@ -556,8 +559,14 @@ Pebble.addEventListener("webviewclosed", function (e) {
     return;
   }
   clay.getSettings(e.response, false);
-  dropMap();
-  boot();
+  location.resolve(
+    typeof localStorage !== "undefined" ? localStorage : null,
+    jsonGet,
+    function () {
+      dropMap();
+      boot();
+    }
+  );
 });
 
 Pebble.addEventListener("appmessage", function (e) {
