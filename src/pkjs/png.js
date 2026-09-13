@@ -440,7 +440,7 @@ function styleMap(rgba) {
 }
 
 function rainColor(r, g, b, a) {
-  if (a < 48) {
+  if (a < 48 || r + g + b < 24) {
     return null;
   }
   var best = 0;
@@ -454,7 +454,7 @@ function rainColor(r, g, b, a) {
       best = k[3];
     }
   }
-  if (best < 15) {
+  if (best < 15 || bestD > 6400) {
     return null;
   }
   if (best < 20) {

@@ -445,13 +445,7 @@ function pumpWarm() {
 }
 
 function prefetch(cursor) {
-  var set = catalog.warmSet(cursor);
-  var i;
-  for (i = 0; i < set.length; i++) {
-    if (set[i] !== cursor) {
-      state.warmQ.push(set[i]);
-    }
-  }
+  state.warmQ = catalog.warmSet(cursor);
   pumpWarm();
 }
 
